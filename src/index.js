@@ -5,6 +5,7 @@ import { Scene, addScene} from './scene'
 import db from './models/db'
 import User from './models/user'
 import Levels from './models/levels'
+import { pin } from './ipfs'
 
 const chatIdCongress = process.env.CONGRESS || ''
 
@@ -76,7 +77,7 @@ const getOptionsLevel = (level) => {
       parse_mode: 'HTML',
       reply_markup: JSON.stringify({
         inline_keyboard: [
-          [{ text: 'Принятия участника', callback_data: level + '_ok' }],
+          [{ text: 'Принять участника', callback_data: level + '_ok' }],
         ],
         parse_mode: 'Markdown'
       })
@@ -209,6 +210,19 @@ const runApp = () => {
               { level1Status: 2 },
               { where: { userId: user.userId } }
             );
+            Levels.findOne({ where: { userId: user.userId } })
+              .then((levels) => {
+                if (levels === null) {
+                  Promise.reject('Error levels')
+                }
+                return pin(levels.level1Result)
+              })
+              .then((result) => {
+                console.log('ipfs', result);
+              })
+              .catch((e) => {
+                console.log(e);
+              })
           }
         })
     }
