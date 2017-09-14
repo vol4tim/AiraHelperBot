@@ -1,3 +1,4 @@
+import querystring from 'querystring'
 import _ from 'lodash'
 import bot from './bot'
 import message from './messages'
@@ -26,6 +27,94 @@ const start = (userId, username) => (
     })
 )
 
+const confirm = {
+  1: {
+    ok: (msg, data) => {
+      const userId = msg.from.id
+      const username = data.username
+      User.findOne({ where: { username } })
+        .then((user) => {
+          if (user === null) {
+            bot.sendMessage(userId, message('user_not_found', { username }), getOptions());
+          } else {
+            bot.sendMessage(user.userId, message('step_1_ok.1'), getOptions());
+            bot.sendMessage(chatIdCongress, message('step_1_ok.2', { username }), getOptions());
+            Levels.update(
+              { level1Status: 2 },
+              { where: { userId: user.userId } }
+            );
+            Levels.findOne({ where: { userId: user.userId } })
+              .then((levels) => {
+                if (levels === null) {
+                  Promise.reject('Error levels')
+                }
+                return pin(levels.level1Result)
+              })
+              .then((result) => {
+                console.log('ipfs', result);
+              })
+              .catch((e) => {
+                console.log(e);
+              })
+          }
+        })
+    },
+    no: (msg, data) => {
+      const userId = msg.from.id
+      const username = data.username
+      User.findOne({ where: { username } })
+        .then((user) => {
+          if (user === null) {
+            bot.sendMessage(userId, message('user_not_found', { username }), getOptions());
+          } else {
+            bot.sendMessage(user.userId, message('step_1_ok.3'), getOptions());
+            bot.sendMessage(chatIdCongress, message('step_1_ok.4', { username }), getOptions());
+            Levels.update(
+              { level1Status: 4 },
+              { where: { userId: user.userId } }
+            );
+          }
+        })
+    }
+  },
+  3: {
+    ok: (msg, data) => {
+      const userId = msg.from.id
+      const username = data.username
+      User.findOne({ where: { username } })
+        .then((user) => {
+          if (user === null) {
+            bot.sendMessage(userId, message('user_not_found', { username }), getOptions());
+          } else {
+            bot.sendMessage(user.userId, message('step_3_ok.1'), getOptions());
+            bot.sendMessage(chatIdCongress, message('step_3_ok.2', { username }), getOptions());
+            Levels.update(
+              { level3Status: 2 },
+              { where: { userId: user.userId } }
+            );
+          }
+        })
+    },
+    no: (msg, data) => {
+      const userId = msg.from.id
+      const username = data.username
+      User.findOne({ where: { username } })
+        .then((user) => {
+          if (user === null) {
+            bot.sendMessage(userId, message('user_not_found', { username }), getOptions());
+          } else {
+            bot.sendMessage(user.userId, message('step_3_ok.3'), getOptions());
+            bot.sendMessage(chatIdCongress, message('step_3_ok.4', { username }), getOptions());
+            Levels.update(
+              { level3Status: 4 },
+              { where: { userId: user.userId } }
+            );
+          }
+        })
+    }
+  }
+}
+
 const getLevelStatus = (level, userId) => (
   Levels.findOne({ where: { userId } })
     .then((levels) => {
@@ -38,6 +127,8 @@ const getLevelStatus = (level, userId) => (
           return 'pending'
         } else if (levels['level' + level + 'Status'] === 2) {
           return 'done'
+        } else if (levels['level' + level + 'Status'] === 4) {
+          return 'not_accepted'
         }
         return 'new'
       }
@@ -47,9 +138,12 @@ const getLevelStatus = (level, userId) => (
 const accessLevel = (level, userId) => {
   return getLevelStatus(level, userId)
     .then((result) => {
+      let access = false
       switch (result) {
         case 'new':
-          return true
+        case 'not_accepted':
+          access = true
+          break;
         case 'no_done':
           bot.sendMessage(userId, message('step_no_done'));
           break;
@@ -59,6 +153,9 @@ const accessLevel = (level, userId) => {
         case 'done':
           bot.sendMessage(userId, message('step_done'));
           break;
+      }
+      if (access) {
+        return true
       }
       return false
     })
@@ -71,27 +168,54 @@ const runHelp = (level, userId) => {
   bot.sendMessage(userId, message('step_' + level + '_help'), { parse_mode: 'HTML' });
 }
 
-const getOptionsLevel = (level) => {
-  if (level === '1ok') {
+const getOptionsLevel = (cmd, data = {}) => {
+  if (cmd === 'level') {
     return {
       parse_mode: 'HTML',
       reply_markup: JSON.stringify({
         inline_keyboard: [
-          [{ text: 'Принять участника', callback_data: level + '_ok' }],
+          [{ text: 'Отправить ответ', callback_data: querystring.stringify(
+            {
+              cmd,
+              btn: 'done',
+              ...data
+            }
+          ) }],
+          [{ text: 'Подсказка', callback_data: querystring.stringify(
+            {
+              cmd,
+              btn: 'help',
+              ...data
+            }
+          ) }]
         ],
         parse_mode: 'Markdown'
       })
     }
   }
-  return {
-    parse_mode: 'HTML',
-    reply_markup: JSON.stringify({
-      inline_keyboard: [
-        [{ text: 'Отправить ответ', callback_data: level + '_done' }],
-        [{ text: 'Подсказка', callback_data: level + '_help' }]
-      ],
-      parse_mode: 'Markdown'
-    })
+  if (cmd === 'confirm') {
+    return {
+      parse_mode: 'HTML',
+      reply_markup: JSON.stringify({
+        inline_keyboard: [
+          [{ text: 'Принять участника', callback_data: querystring.stringify(
+            {
+              cmd,
+              btn: 'ok',
+              ...data
+            }
+          ) }],
+          [{ text: 'Отклонить', callback_data: querystring.stringify(
+            {
+              cmd,
+              btn: 'no',
+              ...data
+            }
+          ) }],
+        ],
+        parse_mode: 'Markdown'
+      })
+    }
   }
 }
 
@@ -105,20 +229,23 @@ const runApp = () => {
 
   bot.on('callback_query', function (msg) {
     const userId = msg.from.id
-    const answer = msg.data.split('_');
-    const step = answer[0];
-    const button = answer[1];
-    let text = ''
+    const data = querystring.parse(msg.data);
+    let text = 'ok'
 
-    if (button === 'help') {
-      runHelp(step, userId)
-      text = 'Подсказка'
-    } else if (button === 'ok') {
-      scenes[step].run({ ...msg.message, from: msg.from })
-      text = 'Ответ'
-    } else if (button === 'done') {
-      scenes[step].run({ ...msg.message, from: msg.from })
-      text = 'Ответ'
+    if (data.cmd === 'level') {
+      if (data.btn === 'done') {
+        scenes[data.level].run({ ...msg.message, from: msg.from })
+        text = 'Ответ'
+      } else if (data.btn === 'help') {
+        runHelp(data.level, userId)
+        text = 'Подсказка'
+      }
+    } else if (data.cmd === 'confirm') {
+      if (data.btn === 'ok') {
+        confirm[data.level].ok({ ...msg.message, from: msg.from }, data)
+      } else if (data.btn === 'no') {
+        confirm[data.level].no({ ...msg.message, from: msg.from }, data)
+      }
     }
 
     bot.answerCallbackQuery({ callback_query_id: msg.id, text });
@@ -129,7 +256,7 @@ const runApp = () => {
     start(userId, '@' + msg.chat.username)
       .then((result) => {
         if (result === null) {
-          bot.sendMessage(userId, message('step_1'), getOptionsLevel(1));
+          bot.sendMessage(userId, message('step_1'), getOptionsLevel('level', { level: 1 }));
         } else {
           bot.sendMessage(userId, message('start'), getOptions());
         }
@@ -147,7 +274,7 @@ const runApp = () => {
     accessLevel(level, userId)
       .then((result) => {
         if (result) {
-          bot.sendMessage(userId, message('step_1'), getOptionsLevel(level));
+          bot.sendMessage(userId, message('step_1'), getOptionsLevel('level', { level }));
         }
       })
   });
@@ -171,7 +298,7 @@ const runApp = () => {
         scene.bot.sendMessage(userId, message('step_1_done.2'), getOptions());
       } else {
         scene.bot.sendMessage(userId, message('step_1_done.3'), getOptions());
-        scene.bot.sendMessage(chatIdCongress, message('step_1_done.4', { username: msg.chat.username, ipfshash }), getOptionsLevel('1ok'));
+        scene.bot.sendMessage(chatIdCongress, message('step_1_done.4', { username: msg.chat.username, ipfshash }), getOptionsLevel('confirm', { level: 1, username: '@' + msg.chat.username }));
 
         Levels.update(
           { level1Status: 1, level1Result: ipfshash },
@@ -184,59 +311,13 @@ const runApp = () => {
   scenes[1] = new Scene(bot, 'step_1_done$', steps_1)
   addScene(scenes[1]);
 
-  const steps_1_ok = [
-    (scene, msg) => {
-      const userId = msg.from.id
-      if (msg.chat.id.toString() !== chatIdCongress) {
-        scene.bot.sendMessage(userId, message('access_congress'), getOptions());
-        return false
-      }
-      scene.bot.sendMessage(userId, message('step_1_ok.1'), getOptions());
-      return true
-    },
-    (scene, msg) => {
-      const userId = msg.from.id
-      const username = msg.text
-
-      return User.findOne({ where: { username } })
-        .then((user) => {
-          if (user === null) {
-            scene.bot.sendMessage(userId, message('step_1_ok.4', { username }), getOptions());
-          } else {
-            scene.bot.sendMessage(user.userId, message('step_1_ok.3'));
-            scene.bot.sendMessage(userId, message('step_1_ok.2', { username }), getOptions());
-            scene.bot.sendMessage(chatIdCongress, message('step_1_ok.2', { username }), getOptions());
-            Levels.update(
-              { level1Status: 2 },
-              { where: { userId: user.userId } }
-            );
-            Levels.findOne({ where: { userId: user.userId } })
-              .then((levels) => {
-                if (levels === null) {
-                  Promise.reject('Error levels')
-                }
-                return pin(levels.level1Result)
-              })
-              .then((result) => {
-                console.log('ipfs', result);
-              })
-              .catch((e) => {
-                console.log(e);
-              })
-          }
-        })
-    }
-  ]
-  scenes['1ok'] = new Scene(bot, 'step_1_ok', steps_1_ok)
-  addScene(scenes['1ok']);
-
   bot.onText(/\/step_2$/, function (msg) {
     const userId = msg.from.id
     const level = 2
     accessLevel(level, userId)
       .then((result) => {
         if (result) {
-          bot.sendMessage(userId, message('step_2'), getOptionsLevel(level));
+          bot.sendMessage(userId, message('step_2'), getOptionsLevel('level', { level }));
         }
       })
   });
@@ -278,7 +359,7 @@ const runApp = () => {
     accessLevel(level, userId)
       .then((result) => {
         if (result) {
-          bot.sendMessage(userId, message('step_3'), getOptionsLevel(level));
+          bot.sendMessage(userId, message('step_3'), getOptionsLevel('level', { level }));
         }
       })
   });
@@ -299,9 +380,10 @@ const runApp = () => {
       const userId = msg.from.id
       const text = msg.text
       scene.bot.sendMessage(userId, message('step_3_done.2'), getOptions());
+      scene.bot.sendMessage(chatIdCongress, message('step_3_done.3', { username: msg.chat.username, text }), getOptionsLevel('confirm', { level: 3, username: '@' + msg.chat.username }));
 
       Levels.update(
-        { level3Status: 2, level3Result: text },
+        { level3Status: 1, level3Result: text },
         { where: { userId } }
       );
       return
