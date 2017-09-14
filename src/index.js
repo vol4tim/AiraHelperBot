@@ -256,7 +256,7 @@ const runApp = () => {
     (scene, msg) => {
       const userId = msg.from.id
       const text = msg.text
-      if (text !== 'все тоже самое, что и собирался делать') {
+      if (text.toLowerCase() !== 'все тоже самое, что и собирался делать') {
         scene.bot.sendMessage(userId, message('step_2_done.2'), getOptions());
       } else {
         scene.bot.sendMessage(userId, message('step_2_done.3'), getOptions());
